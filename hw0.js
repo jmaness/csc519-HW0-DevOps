@@ -335,7 +335,13 @@ yargs
             }
         })
     .fail((msg, err) => {
-        console.error(err);
+        if (msg) {
+            console.log(msg);
+        }
+
+        if (err) {
+            console.error(err);
+        }
     })
     .demandCommand()
     .help()
