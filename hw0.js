@@ -3,48 +3,53 @@ const chalk  = require('chalk');
 const os     = require('os');
 const yargs  = require('yargs');
 const retry  = require('async-retry');
-const AWS    = require("aws-sdk");
+const AWS    = require('aws-sdk');
 const uuid   = require('uuid');
 const util   = require('util');
 
-var config = {};
-// Retrieve our api token from the environment variables.
-config.token = process.env.NCSU_DOTOKEN;
-
-if( !config.token ) {
-    console.log(chalk`{red.bold NCSU_DOTOKEN is not defined!}`);
-    console.log(`Please set your environment variables with appropriate token.`);
-    console.log(chalk`{italic You may need to refresh your shell in order for your changes to take place.}`);
-    process.exit(1);
-}
-
-console.log(chalk.green(`Your token is: ${config.token.substring(0,4)}...`));
-
-// Configure our headers to use our token when making REST api requests.
-const headers = {
-    'Content-Type':'application/json',
-    Authorization: 'Bearer ' + config.token
-};
-
-
 class DigitalOceanProvider {
-    async makeRequest(url) {
-        return await got(url, { headers: headers, json:true })
-            .catch(err => console.error(`${url} ${err}`));
+
+    constructor(token) {
+        // Configure our headers to use our token when making REST api requests.
+        this.headers = {
+            'Content-Type':'application/json',
+            Authorization: 'Bearer ' + token
+        };
     }
 
-    async createDroplet (dropletName, region, imageName, sshKeys) {
-        if( dropletName == "" || region == "" || imageName == "" ) {
+    async makeRequest(url) {
+        var resp = await got(url, { headers: this.headers, json:true })
+            .catch(err => console.error(`${url} ${err}`));
+        return resp;
+    }
+
+    async findSSHKeyPair(name) {
+        var resp = await this.makeRequest('https://api.digitalocean.com/v2/account/keys');
+
+        if (resp && resp.body && resp.body.ssh_keys) {
+            var sshKey = resp.body.ssh_keys.find(key => key.name === name);
+            if (sshKey) {
+                return sshKey.id;
+            }
+        }
+
+        throw new Error(`Unable to find SSH key pair: ${name}`);
+    }
+
+    async createDroplet(dropletName, region, imageName, sshKeyPairName) {
+        if (dropletName == "" || region == "" || imageName == "" || sshKeyPairName == "") {
             console.log( chalk.red("You must provide non-empty parameters for createDroplet!") );
             return;
         }
+
+        var sshKeyId = await this.findSSHKeyPair(sshKeyPairName);
 
         var data = {
             "name": dropletName,
             "region":region,
             "size":"512mb",
             "image":imageName,
-            "ssh_keys": sshKeys,
+            "ssh_keys": [sshKeyId],
             "backups":false,
             "ipv6":false,
             "user_data":null,
@@ -54,19 +59,14 @@ class DigitalOceanProvider {
         console.log("Attempting to create: "+ JSON.stringify(data) );
 
         let response = await got.post("https://api.digitalocean.com/v2/droplets", {
-            headers:headers,
+            headers: this.headers,
             json:true,
             body: data
         }).catch(err => 
             console.error(chalk.red(`createDroplet: ${err}`)) 
         );
 
-        if (!response) return;
-
-        console.log(response.statusCode);
-        console.log(response.body);
-
-        if(response.statusCode == 202) {
+        if (response && response.statusCode == 202) {
             console.log(chalk.green(`Created droplet id ${response.body.droplet.id}`));
         }
 
@@ -89,7 +89,7 @@ class DigitalOceanProvider {
         }
 
         let response = await got.delete(`https://api.digitalocean.com/v2/droplets/${id}`, {
-            headers:headers,
+            headers: this.headers,
             json:true
         }).catch(err => 
             console.error(chalk.red(`deleteDroplet: ${err}`)) 
@@ -197,18 +197,35 @@ class AWSProvider {
     }
 }
 
+
+/**
+ * Validates that the DigitalOcean token is configured through the NCSU_DOTOKEN
+ * environment variable.
+ * 
+ */
+async function validateDigitalOceanToken() {
+    var token = process.env.NCSU_DOTOKEN;
+
+    if (!token) {
+        console.log(chalk`{red.bold NCSU_DOTOKEN is not defined!}`);
+        console.log(`Please set your environment variables with appropriate token.`);
+        console.log(chalk`{italic You may need to refresh your shell in order for your changes to take place.}`);
+        process.exit(1);
+    }
+
+    return token;
+}
+
 async function provisionDigitalOceanDroplet() {
-    let client = new DigitalOceanProvider();
+    var token = await validateDigitalOceanToken();
+    let client = new DigitalOceanProvider(token);
 
     var name = "jwmanes2-" + uuid.v4();
     var region = "nyc1"; 
     var image = "ubuntu-19-10-x64";
-
-    // Select the first SSH key configured in DigitalOcean which should be sufficient for HW0
-    var sshKeyId = (await client.makeRequest('https://api.digitalocean.com/v2/account/keys'))
-        .body.ssh_keys[0].id;
+    var sshKeyPairName = "csc519";
     
-    var createDropletResponse = await client.createDroplet(name, region, image, [sshKeyId]);
+    var createDropletResponse = await client.createDroplet(name, region, image, sshKeyPairName);
 
     if (createDropletResponse && createDropletResponse.body.droplet) {
         var dropletId = createDropletResponse.body.droplet.id;
@@ -221,7 +238,7 @@ async function provisionDigitalOceanDroplet() {
                 let droplet = resp.body.droplet;
                 if (droplet.networks && droplet.networks.v4 && droplet.networks.v4.length > 0) {
                     // Print out IP address
-                    console.log(droplet.networks.v4[0].ip_address);
+                    console.log("IP:", droplet.networks.v4[0].ip_address);
                     return droplet.networks.v4[0].ip_address;
                 }
             }
@@ -235,7 +252,8 @@ async function provisionDigitalOceanDroplet() {
 }
 
 async function destroyDigitalOceanDroplet(id) {
-    let client = new DigitalOceanProvider();
+    var token = await validateDigitalOceanToken();
+    let client = new DigitalOceanProvider(token);
     await client.deleteDroplet(id);
 }
 
@@ -259,7 +277,7 @@ async function provisionAWSInstance() {
 
         if (info.PublicIpAddress) {
             // Print out IP address
-            console.log(info.PublicIpAddress);
+            console.log('IP:', info.PublicIpAddress);
             return info.PublicIpAddress;
         }
 
