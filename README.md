@@ -1,5 +1,13 @@
 # HW0-DevOps
 
+# Opunit validation
+![opunit passed](https://github.ncsu.edu/jwmanes2/HW0-DevOps/raw/master/jwmanes2_opunit.png)
+
+
+# Screencast Demo
+https://drive.google.com/open?id=1tDkwrBW0tSbLM2TRYJPZXSk4i4Cb4UwY (Requires NCSU credentials)
+
+
 # Prerequisites
 1. Install NPM dependencies by running:
 
@@ -43,3 +51,5 @@ With the ID that was logged when the instance was created, you can delete the in
 ```
 node hw0.js rm aws [id]
 ```
+
+
