@@ -1,0 +1,17 @@
+{
+  "name": "HW0-DevOps",
+  "version": "0.1.0",
+  "description": "HW0 Provision VMs",
+  "main": "main.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "chalk": "^2.4.2",
+    "got": "^9.6.0",
+    "yargs": "^15.1.0",
+    "async-retry": "^1.3.1"
+  }
+}
