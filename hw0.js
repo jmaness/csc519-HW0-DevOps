@@ -2,7 +2,10 @@ const got    = require("got");
 const chalk  = require('chalk');
 const os     = require('os');
 const yargs  = require('yargs');
-const retry = require('async-retry')
+const retry  = require('async-retry');
+const AWS    = require("aws-sdk");
+const uuid   = require('uuid');
+const util   = require('util');
 
 var config = {};
 // Retrieve our api token from the environment variables.
@@ -26,18 +29,11 @@ const headers = {
 
 class DigitalOceanProvider {
     async makeRequest(url) {
-        let response = await got(url, { headers: headers, json:true })
-                             .catch(err => console.error(`${url} ${err}`));
-        
-        if( !response ) return;
-
-        if( response.headers ) {
-            console.log( chalk.yellow(`Calls remaining ${response.headers["ratelimit-remaining"]}`) );
-        }
-        return response;
+        return await got(url, { headers: headers, json:true })
+            .catch(err => console.error(`${url} ${err}`));
     }
 
-    async createDroplet (dropletName, region, imageName, sshKeys ) {
+    async createDroplet (dropletName, region, imageName, sshKeys) {
         if( dropletName == "" || region == "" || imageName == "" ) {
             console.log( chalk.red("You must provide non-empty parameters for createDroplet!") );
             return;
@@ -83,7 +79,6 @@ class DigitalOceanProvider {
             return;
         }
 
-        // Make REST request
         return await this.makeRequest(`https://api.digitalocean.com/v2/droplets/${id}`);
     }
 
@@ -110,10 +105,102 @@ class DigitalOceanProvider {
     }
 };
 
+class AWSProvider {
+
+    /**
+     * Starts the provisioning of an AWS EC2 compute instance.
+     * 
+     * @param {string} name 
+     * @param {string} region 
+     * @param {string} imageName 
+     * @param {string} sshKeyPairName 
+     */
+    async createInstance(name, region, imageName, sshKeyPairName) {
+        var ec2 = new AWS.EC2();
+
+        var instanceParams = {
+            ImageId: imageName, 
+            InstanceType: 't2.micro',
+            KeyName: sshKeyPairName,
+            MinCount: 1,
+            MaxCount: 1
+        };
+
+        var resp = await ec2.runInstances(instanceParams).promise();
+        var instanceId = resp.Instances[0].InstanceId;
+
+        // Tag instance to set name
+        var tagParams = {
+            Resources: [ instanceId ],
+            Tags: [
+                {
+                    Key: 'Name',
+                    Value: name
+                }
+            ]
+        }
+
+        await ec2.createTags(tagParams).promise();
+        return await this.instanceInfo(instanceId);
+    }
+
+    /**
+     * Returns the properties of the AWS EC2 instance with the specified id
+     * 
+     * @param {string} id 
+     */
+    async instanceInfo(id) {
+        var ec2 = new AWS.EC2();
+
+        var params = {
+            "InstanceIds": [ id ]
+        }
+
+        var resp = await ec2.describeInstances(params).promise();
+        return resp.Reservations[0].Instances[0];
+    }
+
+    /**
+     * Terminates the AWS EC2 compute instance with the specified id
+     * 
+     * @param {string} id 
+     */
+    async deleteInstance(id) {
+        var ec2 = new AWS.EC2();
+
+        var params = {
+            "InstanceIds": [ id ]
+        }
+
+        var resp = await ec2.terminateInstances(params).promise();
+
+        // Poll until instance is stopped or terminated
+        console.log("Waiting for termination...");
+        await retry(async bail => {
+            var resp = await ec2.terminateInstances(params).promise();
+
+            // States sufficient to demonstrate that the VM is no longer running
+            var terminalStates = [ "stopped", "terminated" ];
+            var currentState = resp.TerminatingInstances[0].CurrentState.Name;
+
+            if (terminalStates.includes(currentState)) {
+                return currentState;
+            }
+
+            throw new Error('Still waiting for termination...');
+        }, {
+            retries: 10,
+            minTimeout: 3000
+        });
+
+        return resp;
+    }
+}
+
 async function provisionDigitalOceanDroplet() {
     let client = new DigitalOceanProvider();
 
-    var name = "jwmanes2-" + os.hostname();
+    var name = "jwmanes2-" + uuid.v4();
     var region = "nyc1"; 
     var image = "ubuntu-19-10-x64";
 
@@ -154,10 +241,39 @@ async function destroyDigitalOceanDroplet(id) {
 
 async function provisionAWSInstance() {
     console.log("Creating AWS instance...");
+    let client = new AWSProvider();
+
+    var name = "jwmanes2-" + uuid.v4();
+    var region = "us-east-1"; 
+    var image = "ami-0b6b1f8f449568786"; // Ubuntu 19.10 in us-east-1
+    var sshKeyPairName = "csc519";
+
+    var instance = await client.createInstance(name, region, image, sshKeyPairName);
+    var instanceId = instance.InstanceId;
+    console.log(`Instance ID: ${instanceId}`);
+
+    // Poll until an IPv4 address has been assigned
+    console.log("Waiting for IP address...");
+    await retry(async bail => {
+        var info = await client.instanceInfo(instanceId);
+
+        if (info.PublicIpAddress) {
+            // Print out IP address
+            console.log(info.PublicIpAddress);
+            return info.PublicIpAddress;
+        }
+
+        throw new Error('Instance networking not ready...');
+    }, {
+        retries: 10,
+        minTimeout: 3000
+    });
 }
 
 async function destroyAWSInstance(id) {
     console.log(`Deleting AWS instance ${id}`);
+    var client = new AWSProvider();
+    await client.deleteInstance(id);
 }
 
 yargs
@@ -199,6 +315,9 @@ yargs
                     break;
             }
         })
+    .fail((msg, err) => {
+        console.error(err);
+    })
     .demandCommand()
     .help()
     .argv;
