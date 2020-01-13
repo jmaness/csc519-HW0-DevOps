@@ -189,8 +189,9 @@ class AWSProvider {
 
             throw new Error('Still waiting for termination...');
         }, {
-            retries: 10,
-            minTimeout: 3000
+            retries: 50,
+            minTimeout: 1000,
+            maxTimeout: 3000
         });
 
         return resp;
