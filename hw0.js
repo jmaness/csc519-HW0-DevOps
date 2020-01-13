@@ -202,7 +202,7 @@ class AWSProvider {
 /**
  * Validates that the DigitalOcean token is configured through the NCSU_DOTOKEN
  * environment variable.
- * 
+ *
  */
 async function validateDigitalOceanToken() {
     var token = process.env.NCSU_DOTOKEN;
@@ -217,6 +217,10 @@ async function validateDigitalOceanToken() {
     return token;
 }
 
+/**
+ * Starts the provisioning process for a Ubuntu DigitalOcean droplet
+ *
+ */
 async function provisionDigitalOceanDroplet() {
     var token = await validateDigitalOceanToken();
     let client = new DigitalOceanProvider(token);
@@ -252,12 +256,21 @@ async function provisionDigitalOceanDroplet() {
     }
 }
 
+/**
+ * Deletes the DigitalOcean with the specified Droplet id
+ *
+ * @param {string} id
+ */
 async function destroyDigitalOceanDroplet(id) {
     var token = await validateDigitalOceanToken();
     let client = new DigitalOceanProvider(token);
     await client.deleteDroplet(id);
 }
 
+/**
+ * Provisions a free-tier Ubuntu AWS EC2 instance
+ *
+ */
 async function provisionAWSInstance() {
     console.log("Creating AWS instance...");
     let client = new AWSProvider();
@@ -289,6 +302,11 @@ async function provisionAWSInstance() {
     });
 }
 
+/**
+ * Deletes the AWS EC2 Instance with the specified id
+ *
+ * @param {string} id
+ */
 async function destroyAWSInstance(id) {
     console.log(`Deleting AWS instance ${id}`);
     var client = new AWSProvider();
