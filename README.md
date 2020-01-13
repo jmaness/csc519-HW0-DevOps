@@ -1,5 +1,13 @@
 # HW0-DevOps
 
+# Prerequisites
+1. Install NPM dependencies by running:
+
+```
+npm install
+```
+2. Obtain cloud provider API credentials. See the sections below for more information.
+
 # DigitalOcean Instructions
 
 ## Provisioning a DigitalOcean droplet
