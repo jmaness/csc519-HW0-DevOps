@@ -108,7 +108,6 @@ class DigitalOceanProvider {
             console.log(`Deleted droplet ${id}`);
         }
     }
-
 };
 
 async function provisionDigitalOceanDroplet() {
@@ -117,7 +116,10 @@ async function provisionDigitalOceanDroplet() {
     var name = "jwmanes2-" + os.hostname();
     var region = "nyc1"; 
     var image = "ubuntu-19-10-x64";
-    var sshKeyId = "97:7b:54:9a:9a:e5:97:84:47:be:03:16:65:a3:2b:1d";
+
+    // Select the first SSH key configured in DigitalOcean which should be sufficient for HW0
+    var sshKeyId = (await client.makeRequest('https://api.digitalocean.com/v2/account/keys'))
+        .body.ssh_keys[0].id;
     
     var createDropletResponse = await client.createDroplet(name, region, image, [sshKeyId]);
 
